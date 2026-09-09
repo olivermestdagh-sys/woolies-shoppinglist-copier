@@ -75,8 +75,13 @@ happening):
    | "Continue" button in that modal | matched by its visible text |
    | Item row on an open list | `.product-list-item-title` |
    | "Add to this list" search box | `.savedListFreeTextSearch-searchBox` |
-   | Autocomplete suggestion | `.savedListFreeTextSearch-autocompleteItem` |
+   | Autocomplete suggestion | `.savedListFreeTextSearch-autocompleteItem` (row) → `a.savedListFreeTextSearch-autocompleteItemIcon` (the actual "Save to list +" link — clicking the row/product-name link instead does nothing) |
    | "Back to Lists" link | matched by its visible text |
+
+   One more thing that isn't a selector but matters: typing into the search
+   box has to fire a `keyup` event, not just `input` — Woolworths' autocomplete
+   only triggers its search request on `keyup`. `setNativeValue()` in
+   `import.js` does both.
 
 4. Re-minify and rebuild the bookmarklet link. With Node installed:
    ```bash
@@ -91,12 +96,11 @@ happening):
 - No password, ever, touches this code — you're always already logged in
   when you click a bookmarklet, exactly as if you'd typed the same thing by
   hand.
-- The import step **has not been run end-to-end against a real account**
-  while building this — I didn't want to create test lists in your wife's
-  real account without asking. The individual pieces (selectors, the
-  create-list modal, the add-to-list search) were each checked against the
-  live site, but the full automated sequence should be tried on one small
-  list first before trusting it with everything.
+- The full create-list-then-add-items sequence **has been tested live**
+  (against a throwaway test list on Oliver's own account, deleted afterwards)
+  — not against your wife's real lists. It's worth trying on one small real
+  list first before trusting it with everything, since Woolworths' site can
+  behave slightly differently across accounts/regions.
 - It's idempotent by list/item name, so a partial or failed run is safe to
   just re-trigger.
 - Worth a quick check that this stays within the spirit of Woolworths' Terms
