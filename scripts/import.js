@@ -89,6 +89,9 @@
     var desc = Object.getOwnPropertyDescriptor(proto, 'value') || Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
     desc.set.call(el, value);
     el.dispatchEvent(new Event('input', { bubbles: true }));
+    // Woolworths' autocomplete only actually fires its search request on
+    // keyup, not on the input event alone — confirmed by testing live.
+    el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
   }
 
   function wait(ms) {
@@ -179,16 +182,23 @@
     if (!box) throw new Error('Search box not found on this list page.');
     setNativeValue(box, name);
 
-    var opt;
+    // Each suggestion row has TWO links: the product name (goes to the
+    // product page) and a separate "Save to list +" icon link that's the
+    // one that actually adds it. We want the second one, on the first
+    // *real* product row (row 0 is "Select to add '<query>' to list",
+    // a free-text entry — skip it and use row 1, the first real match).
+    var saveLink;
     try {
-      opt = await waitFor(function () {
-        return document.querySelector('.savedListFreeTextSearch-autocompleteItem');
+      saveLink = await waitFor(function () {
+        var rows = document.querySelectorAll('.savedListFreeTextSearch-autocompleteItem');
+        var row = rows[1] || rows[0];
+        return row ? row.querySelector('a.savedListFreeTextSearch-autocompleteItemIcon') : null;
       }, 6000);
     } catch (e) {
       setNativeValue(box, '');
       throw new Error('No match found for "' + name + '".');
     }
-    opt.click();
+    saveLink.click();
     await wait(600);
     setNativeValue(box, '');
   }
