@@ -1,0 +1,104 @@
+# woolies-shoppinglist-copier
+
+A tiny static site with three bookmarklets for copying Woolworths shopping
+lists from one account to another. No server, no backend, no credentials
+handled anywhere but the real Woolworths login page.
+
+**Live once deployed:** `https://YOUR-GITHUB-USERNAME.github.io/woolies-shoppinglist-copier/`
+
+## Deploying to GitHub Pages
+
+1. Create a new repo on GitHub named `woolies-shoppinglist-copier` (or
+   anything you like — just update the two links in `index.html` to match).
+2. Push these files to it:
+   ```bash
+   git init
+   git add .
+   git commit -m "Initial site"
+   git branch -M main
+   git remote add origin https://github.com/YOUR-GITHUB-USERNAME/woolies-shoppinglist-copier.git
+   git push -u origin main
+   ```
+3. In the repo's **Settings → Pages**, set the source to the `main` branch,
+   root folder, and save. GitHub will publish it at the URL above within a
+   minute or two.
+4. Edit the two `github.com/YOUR-GITHUB-USERNAME/...` links near the bottom
+   of `index.html` to point at your actual repo, commit, and push again.
+
+## What's in here
+
+- `index.html` — the whole site (instructions + the three bookmarklets as
+  drag-to-bookmarks-bar links).
+- `scripts/export.js`, `scripts/download.js`, `scripts/import.js` — the
+  readable source for each bookmarklet. **These aren't loaded by the page**
+  (bookmarklets can't reference an external file) — they're here so you can
+  read, edit, and re-minify them instead of working with the compressed
+  one-liner in `index.html`'s `href`.
+
+## How it actually works
+
+- **Export**: run on an open Woolworths list page. Reads the list name (from
+  the page's `<h1>`) and item names (`.product-list-item-title` elements) and
+  saves them into `localStorage` under the key `wwListExport`, scoped to
+  woolworths.com.au. Re-running it on the same list overwrites that list's
+  entry rather than duplicating it, so it's safe to click more than once.
+- **Download**: reads that `localStorage` entry and triggers a browser
+  download of it as JSON, then optionally clears it.
+- **Import**: run on the destination account's `My Lists` page. Prompts for
+  the JSON file, then for each list:
+  1. Skips it if a list with that name already exists on the account.
+  2. Otherwise clicks **Create new list**, types the name, and confirms.
+  3. For each item, types it into the **Add to this list** search box and
+     clicks the first autocomplete suggestion — skipping any item already in
+     the list.
+  4. Uses the page's own **Back to Lists** link to return to the overview
+     (rather than a hard page reload) so the script keeps running instead of
+     being killed by a full navigation.
+
+## Fixing a broken selector
+
+Woolworths can change their site's markup at any time. If a bookmarklet
+starts failing (an alert saying "could not find X", or nothing visibly
+happening):
+
+1. Open woolworths.com.au in Chrome, log in, and go to **My Lists**.
+2. Right-click the element that isn't matching → **Inspect**, and note its
+   class name or attributes.
+3. Update the matching selector in the relevant file under `scripts/`. The
+   selectors currently in use (as of Sep 2026):
+
+   | What | Selector |
+   |---|---|
+   | List row on the overview page | `a.listItem-anchor` (name in `.listItem-title`) |
+   | "Create new list" button | matched by its visible text |
+   | New-list name field | `input[placeholder*="Weekly Shop"]` |
+   | "Continue" button in that modal | matched by its visible text |
+   | Item row on an open list | `.product-list-item-title` |
+   | "Add to this list" search box | `.savedListFreeTextSearch-searchBox` |
+   | Autocomplete suggestion | `.savedListFreeTextSearch-autocompleteItem` |
+   | "Back to Lists" link | matched by its visible text |
+
+4. Re-minify and rebuild the bookmarklet link. With Node installed:
+   ```bash
+   npx terser scripts/import.js --compress --mangle -o /tmp/import.min.js
+   node -e "console.log('javascript:' + encodeURIComponent(require('fs').readFileSync('/tmp/import.min.js','utf8').trim()))"
+   ```
+   Paste the output as the `href` of the matching `<a class="bookmarklet">`
+   in `index.html`.
+
+## Safety notes
+
+- No password, ever, touches this code — you're always already logged in
+  when you click a bookmarklet, exactly as if you'd typed the same thing by
+  hand.
+- The import step **has not been run end-to-end against a real account**
+  while building this — I didn't want to create test lists in your wife's
+  real account without asking. The individual pieces (selectors, the
+  create-list modal, the add-to-list search) were each checked against the
+  live site, but the full automated sequence should be tried on one small
+  list first before trusting it with everything.
+- It's idempotent by list/item name, so a partial or failed run is safe to
+  just re-trigger.
+- Worth a quick check that this stays within the spirit of Woolworths' Terms
+  of Service for your own comfort — this is personal/household use at a
+  small scale, not scraping at volume.
