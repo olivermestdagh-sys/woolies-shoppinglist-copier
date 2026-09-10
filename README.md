@@ -38,10 +38,12 @@ handled anywhere but the real Woolworths login page.
 ## How it actually works
 
 - **Export**: run on an open Woolworths list page. Reads the list name (from
-  the page's `<h1>`) and item names (`.product-list-item-title` elements) and
-  saves them into `localStorage` under the key `wwListExport`, scoped to
-  woolworths.com.au. Re-running it on the same list overwrites that list's
-  entry rather than duplicating it, so it's safe to click more than once.
+  the page's `<h1>`) and, for each item row, both its name
+  (`.product-list-item-title`) and its quantity (the `input[aria-label="List
+  quantity"]` field), and saves them into `localStorage` under the key
+  `wwListExport`, scoped to woolworths.com.au. Re-running it on the same list
+  overwrites that list's entry rather than duplicating it, so it's safe to
+  click more than once.
 - **Download**: reads that `localStorage` entry and triggers a browser
   download of it as JSON, then optionally clears it.
 - **Import**: run on the destination account's `My Lists` page. Prompts for
@@ -49,9 +51,16 @@ handled anywhere but the real Woolworths login page.
   1. Skips it if a list with that name already exists on the account.
   2. Otherwise clicks **Create new list**, types the name, and confirms.
   3. For each item, types it into the **Add to this list** search box and
-     clicks the first autocomplete suggestion — skipping any item already in
-     the list.
-  4. Uses the page's own **Back to Lists** link to return to the overview
+     clicks the actual "Save to list +" link on the first suggestion —
+     skipping any item already in the list. The item that gets added is
+     identified by comparing the list's contents before and after, since the
+     real product name Woolworths adds often has nothing in common with what
+     you searched for (searching "bread" might add "Woolworths Soft White
+     Loaf 680g").
+  4. If the item's saved quantity is more than 1, clicks the list's own "+"
+     button that many times, verifying after each click that it actually
+     registered (Woolworths occasionally drops one) and retrying once if not.
+  5. Uses the page's own **Back to Lists** link to return to the overview
      (rather than a hard page reload) so the script keeps running instead of
      being killed by a full navigation.
 
@@ -73,15 +82,26 @@ happening):
    | "Create new list" button | matched by its visible text |
    | New-list name field | `input[placeholder*="Weekly Shop"]` |
    | "Continue" button in that modal | matched by its visible text |
-   | Item row on an open list | `.product-list-item-title` |
+   | Item row on an open list | `.product-list-item` |
+   | Item name within a row | `.product-list-item-title` |
+   | Item quantity within a row | `input[aria-label="List quantity"]` (read this for export) |
+   | Quantity "+" / "−" buttons | `.cartControls-increment-button` / `.cartControls-decrement-button` |
    | "Add to this list" search box | `.savedListFreeTextSearch-searchBox` |
    | Autocomplete suggestion | `.savedListFreeTextSearch-autocompleteItem` (row) → `a.savedListFreeTextSearch-autocompleteItemIcon` (the actual "Save to list +" link — clicking the row/product-name link instead does nothing) |
    | "Back to Lists" link | matched by its visible text |
 
-   One more thing that isn't a selector but matters: typing into the search
-   box has to fire a `keyup` event, not just `input` — Woolworths' autocomplete
-   only triggers its search request on `keyup`. `setNativeValue()` in
-   `import.js` does both.
+   A few things that aren't selectors but matter just as much:
+   - The search box only actually searches while it has **focus** — call
+     `.focus()` on it before setting its value, or nothing happens.
+   - Typing into it has to fire a `keyup` event, not just `input` —
+     Woolworths' autocomplete only triggers its search request on `keyup`.
+     `setNativeValue()` in `import.js` does both.
+   - The product actually added from a search is often named nothing like
+     what you searched — identify the new row by diffing the list's item
+     names before and after, not by matching the search term.
+   - Quantity changes are genuinely flaky on Woolworths' end (see Safety
+     notes below) — `addItem()` verifies each "+" click actually registered
+     and retries once if not.
 
 4. Re-minify and rebuild the bookmarklet link. With Node installed:
    ```bash
@@ -96,11 +116,20 @@ happening):
 - No password, ever, touches this code — you're always already logged in
   when you click a bookmarklet, exactly as if you'd typed the same thing by
   hand.
-- The full create-list-then-add-items sequence **has been tested live**
-  (against a throwaway test list on Oliver's own account, deleted afterwards)
-  — not against your wife's real lists. It's worth trying on one small real
-  list first before trusting it with everything, since Woolworths' site can
-  behave slightly differently across accounts/regions.
+- The full create-list-then-add-items-then-set-quantity sequence **has been
+  tested live** (against throwaway test lists on Oliver's own account,
+  deleted afterwards) — not against your wife's real lists. It's worth
+  trying on one small real list first before trusting it with everything.
+- **Quantities are genuinely unreliable on Woolworths' own end**, confirmed
+  by testing: even clicking their own "+" button with delays between clicks,
+  a click can silently fail to register — their per-item total and the
+  page's overall price recalculation are both a bit buggy about this
+  (reducing a quantity, for instance, doesn't always reduce the shown
+  price). The script verifies each click and retries once if it didn't
+  stick, and waits after each list before moving on to give the site time to
+  save, but this can't be made 100% reliable when the flakiness is on
+  Woolworths' side. **Spot-check quantities after an import**, especially
+  for items you know had a quantity above 1.
 - It's idempotent by list/item name, so a partial or failed run is safe to
   just re-trigger.
 - Worth a quick check that this stays within the spirit of Woolworths' Terms
