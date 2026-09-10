@@ -85,12 +85,14 @@
   }
 
   function setNativeValue(el, value) {
+    // The site's autocomplete only actually attaches/searches while the
+    // input has focus — confirmed by testing live.
+    el.focus();
     var proto = Object.getPrototypeOf(el);
     var desc = Object.getOwnPropertyDescriptor(proto, 'value') || Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value');
     desc.set.call(el, value);
     el.dispatchEvent(new Event('input', { bubbles: true }));
-    // Woolworths' autocomplete only actually fires its search request on
-    // keyup, not on the input event alone — confirmed by testing live.
+    // It also only fires its search request on keyup, not on input alone.
     el.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
   }
 
@@ -177,9 +179,17 @@
     }, 12000);
   }
 
-  async function addItem(name) {
+  async function addItem(name, qty) {
     var box = document.querySelector('.savedListFreeTextSearch-searchBox');
     if (!box) throw new Error('Search box not found on this list page.');
+
+    // Snapshot titles before adding — the product actually added often has a
+    // real product name completely different from the search term (e.g.
+    // searching "bread" adds "Woolworths Soft White Loaf 680g"), so we can't
+    // find the new row by matching it against `name`. Diffing before/after
+    // is the only reliable way to identify which row is the new one.
+    var before = getCurrentListItems();
+
     setNativeValue(box, name);
 
     // Each suggestion row has TWO links: the product name (goes to the
@@ -199,8 +209,53 @@
       throw new Error('No match found for "' + name + '".');
     }
     saveLink.click();
-    await wait(600);
+    await wait(1000);
     setNativeValue(box, '');
+    await wait(300);
+
+    // The item lands in the list at quantity 1. If more were wanted, use
+    // the same "+" button a person would click, once per extra unit — this
+    // site's own quantity control, not a value we set directly. Woolworths'
+    // own save-on-change here is genuinely flaky (confirmed by testing): a
+    // click can silently fail to stick even with delays, so we verify each
+    // click actually registered and retry it once if not.
+    if (qty && qty > 1) {
+      var row = await waitFor(function () {
+        var after = getCurrentListItems();
+        var added = after.filter(function (t) {
+          return before.indexOf(t) === -1;
+        });
+        if (!added.length) return null;
+        var rows = qAll('.product-list-item');
+        return rows.find(function (r) {
+          var t = r.querySelector('.product-list-item-title');
+          return t && added.indexOf(t.textContent.trim()) > -1;
+        });
+      }, 6000).catch(function () {
+        return null;
+      });
+
+      if (row) {
+        var inc = row.querySelector('.cartControls-increment-button');
+        var qtyInput = row.querySelector('input[aria-label="List quantity"]');
+        if (inc) {
+          for (var k = 1; k < qty; k++) {
+            var target = k + 1;
+            inc.click();
+            await wait(1200);
+            // Verify the click actually registered; retry once if not —
+            // Woolworths sometimes drops a click even with delays.
+            if (qtyInput && parseInt(qtyInput.value, 10) !== target) {
+              await wait(800);
+              if (parseInt(qtyInput.value, 10) !== target) {
+                inc.click();
+                await wait(1200);
+              }
+            }
+          }
+        }
+      }
+    }
   }
 
   async function backToLists() {
@@ -235,19 +290,27 @@
 
       var already = getCurrentListItems();
       for (var j = 0; j < list.items.length; j++) {
-        var itemName = list.items[j];
-        showStatus('"' + list.name + '": item ' + (j + 1) + '/' + list.items.length + ' — ' + itemName);
+        var entry = list.items[j];
+        var itemName = typeof entry === 'string' ? entry : entry.name;
+        var itemQty = typeof entry === 'string' ? 1 : (entry.qty || 1);
+        showStatus('"' + list.name + '": item ' + (j + 1) + '/' + list.items.length + ' — ' + itemName + (itemQty > 1 ? ' x' + itemQty : ''));
         if (already.indexOf(itemName) > -1) {
           report.skippedItems++;
           continue;
         }
         try {
-          await addItem(itemName);
+          await addItem(itemName, itemQty);
           report.addedItems++;
         } catch (e) {
           report.failedItems.push(list.name + ' / ' + itemName + ': ' + e.message);
         }
       }
+
+      // Woolworths' own quantity save is a bit laggy — the site's totals
+      // take a moment to recalculate and the new quantity to actually stick.
+      // Give it a breather before navigating away from this list.
+      showStatus('"' + list.name + '": letting quantities finish saving…');
+      await wait(10000);
 
       await backToLists();
     }

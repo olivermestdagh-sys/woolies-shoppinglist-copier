@@ -18,9 +18,14 @@
   var raw = h1 ? h1.textContent : document.title;
   var name = raw.replace(/\s*\(\d+\s*Products?\)\s*$/i, '').trim();
 
-  var items = Array.prototype.map
-    .call(document.querySelectorAll('.product-list-item-title'), function (a) {
-      return a.textContent.trim();
+  var items = Array.prototype
+    .map.call(document.querySelectorAll('.product-list-item'), function (row) {
+      var titleEl = row.querySelector('.product-list-item-title');
+      var qtyEl = row.querySelector('input[aria-label="List quantity"]');
+      var name = titleEl ? titleEl.textContent.trim() : null;
+      var qty = qtyEl ? parseInt(qtyEl.value, 10) : 1;
+      if (!name) return null;
+      return { name: name, qty: qty > 0 ? qty : 1 };
     })
     .filter(Boolean);
 
